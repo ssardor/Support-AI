@@ -27,6 +27,14 @@ const serviceAccountAuth = new JWT({
 
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID!, serviceAccountAuth);
 
+async function ensureHeaders(sheet: any) {
+  await sheet.loadHeaderRow();
+  const headers = sheet.headerValues;
+  if (!headers.includes('Contact_Info')) {
+    await sheet.setHeaderRow([...headers, 'Contact_Info']);
+  }
+}
+
 export async function getAvailability(date: string, subject: string) {
   await doc.loadInfo(); // loads document properties and worksheets
   const sheet = doc.sheetsByTitle['schedule'];
@@ -68,6 +76,8 @@ export async function bookSlot(rowId: number, studentName: string, contactInfo: 
     throw new Error("Sheet 'schedule' not found");
   }
 
+  await ensureHeaders(sheet);
+
   // google-spreadsheet rows are usually fetched. To update a specific row by ID (index), 
   // we might need to fetch it or use loadCells.
   // However, getRows returns an array of Row objects which we can save.
@@ -108,6 +118,8 @@ export async function addSlot(date: string, time: string, subject: string, teach
     throw new Error("Sheet 'schedule' not found");
   }
 
+  await ensureHeaders(sheet);
+
   await sheet.addRow({
     Date: date,
     Time: time,
@@ -127,6 +139,8 @@ export async function createBatchSchedule(startDate: string, days: number, subje
   if (!sheet) {
     throw new Error("Sheet 'schedule' not found");
   }
+
+  await ensureHeaders(sheet);
 
   const start = new Date(startDate);
   const rowsToAdd = [];
