@@ -4,8 +4,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 // Initialize auth
-const SERVICE_ACCOUNT_PATH = path.join(process.cwd(), 'service-account.json');
-const creds = JSON.parse(fs.readFileSync(SERVICE_ACCOUNT_PATH, 'utf-8'));
+let creds: any;
+
+if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+  creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+} else {
+  const SERVICE_ACCOUNT_PATH = path.join(process.cwd(), 'service-account.json');
+  if (fs.existsSync(SERVICE_ACCOUNT_PATH)) {
+    creds = JSON.parse(fs.readFileSync(SERVICE_ACCOUNT_PATH, 'utf-8'));
+  } else {
+    throw new Error("Credentials missing: Set GOOGLE_SERVICE_ACCOUNT_JSON or create service-account.json");
+  }
+}
 
 const serviceAccountAuth = new JWT({
   email: creds.client_email,

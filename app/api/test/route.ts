@@ -16,11 +16,16 @@ export async function GET() {
       throw new Error("Missing GOOGLE_SHEET_ID env var");
     }
 
-    const SERVICE_ACCOUNT_PATH = path.join(process.cwd(), 'service-account.json');
-    if (!fs.existsSync(SERVICE_ACCOUNT_PATH)) {
-        throw new Error("service-account.json not found");
+    let creds;
+    if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+      creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+    } else {
+      const SERVICE_ACCOUNT_PATH = path.join(process.cwd(), 'service-account.json');
+      if (!fs.existsSync(SERVICE_ACCOUNT_PATH)) {
+          throw new Error("service-account.json not found");
+      }
+      creds = JSON.parse(fs.readFileSync(SERVICE_ACCOUNT_PATH, 'utf-8'));
     }
-    const creds = JSON.parse(fs.readFileSync(SERVICE_ACCOUNT_PATH, 'utf-8'));
 
     const serviceAccountAuth = new JWT({
       email: creds.client_email,
