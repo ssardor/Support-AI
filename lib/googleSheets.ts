@@ -35,6 +35,13 @@ async function ensureHeaders(sheet: any) {
   }
 }
 
+function formatContactInfo(contactInfo: string) {
+  const trimmed = (contactInfo ?? '').trim();
+  if (!trimmed) return '""';
+  const sanitized = trimmed.replace(/"/g, '');
+  return `"${sanitized}"`;
+}
+
 export async function getAvailability(date: string, subject: string) {
   await doc.loadInfo(); // loads document properties and worksheets
   const sheet = doc.sheetsByTitle['schedule'];
@@ -104,7 +111,7 @@ export async function bookSlot(rowId: number, studentName: string, contactInfo: 
   }
 
   rowToUpdate.set('Student_Name', studentName);
-  rowToUpdate.set('Contact_Info', contactInfo);
+  rowToUpdate.set('Contact_Info', formatContactInfo(contactInfo));
   await rowToUpdate.save();
   
   return { success: true, message: "Done lah! See you." };

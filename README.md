@@ -39,4 +39,3 @@ This is a Tuition Centre Support AI MVP built with Next.js, DeepSeek, Supabase, 
 - **AI Logic**: DeepSeek V3 for understanding intent and Singlish persona.
 - **RAG**: Supabase for knowledge base retrieval.
 - **Tools**: Google Sheets integration for checking availability and booking slots.
-
