@@ -5,10 +5,26 @@ import { JWT } from 'google-auth-library';
 import * as fs from 'fs';
 import * as path from 'path';
 
+type ServiceStatus = {
+  success: boolean;
+  [key: string]: unknown;
+};
+
+type TestResults = {
+  googleSheets?: ServiceStatus;
+  supabase?: ServiceStatus;
+  gemini?: ServiceStatus;
+};
+
+interface ServiceAccountCredentials {
+  client_email: string;
+  private_key: string;
+}
+
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const results: any = {};
+  const results: TestResults = {};
 
   // 1. Test Google Sheets
   try {
@@ -16,7 +32,7 @@ export async function GET() {
       throw new Error("Missing GOOGLE_SHEET_ID env var");
     }
 
-    let creds;
+  let creds: ServiceAccountCredentials;
     if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
       creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
     } else {
@@ -41,8 +57,9 @@ export async function GET() {
       hasKnowledgeTab: !!sheet,
       sheets: doc.sheetsByIndex.map(s => s.title)
     };
-  } catch (e: any) {
-    results.googleSheets = { success: false, error: e.message };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Unknown error';
+    results.googleSheets = { success: false, error: message };
   }
 
   // 2. Test Supabase
@@ -58,8 +75,9 @@ export async function GET() {
     const { error } = await supabase.from('documents').select('id').limit(1);
     if (error) throw error;
     results.supabase = { success: true, message: "Connected and table 'documents' exists" };
-  } catch (e: any) {
-    results.supabase = { success: false, error: e.message };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Unknown error';
+    results.supabase = { success: false, error: message };
   }
 
   // 3. Test Gemini
@@ -71,8 +89,9 @@ export async function GET() {
     const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
     await model.embedContent("test");
     results.gemini = { success: true, message: "Embedding generated successfully" };
-  } catch (e: any) {
-    results.gemini = { success: false, error: e.message };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Unknown error';
+    results.gemini = { success: false, error: message };
   }
 
   return Response.json(results, { status: 200 });

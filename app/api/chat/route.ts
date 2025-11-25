@@ -2,6 +2,8 @@ import { OpenAI } from 'openai';
 import { getAvailability, bookSlot, addSlot, createBatchSchedule } from '@/lib/googleSheets';
 import { retrieveContext } from '@/lib/rag';
 
+type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
+
 const deepseek = new OpenAI({
   apiKey: process.env.DEEPSEEK_API_KEY,
   baseURL: 'https://api.deepseek.com',
@@ -9,13 +11,32 @@ const deepseek = new OpenAI({
 
 export async function POST(req: Request) {
   try {
-    const { messages } = await req.json();
+    const { messages } = (await req.json()) as { messages: ChatMessage[] };
+    if (!messages || messages.length === 0) {
+      throw new Error("No messages provided");
+    }
+
     const lastMessage = messages[messages.length - 1];
     
     // RAG Step - only for user messages
     let context = "";
     if (lastMessage.role === 'user') {
-      context = await retrieveContext(lastMessage.content);
+      const userContent = Array.isArray(lastMessage.content)
+        ? lastMessage.content
+            .map((part) =>
+              typeof part === 'string'
+                ? part
+                : part.type === 'text'
+                  ? part.text ?? ''
+                  : ''
+            )
+            .join(' ')
+            .trim()
+        : (lastMessage.content as string | undefined) ?? '';
+
+      if (userContent) {
+        context = await retrieveContext(userContent);
+      }
     }
     
     const systemPrompt = `You are a helpful assistant for a Tuition Centre.
@@ -45,7 +66,7 @@ export async function POST(req: Request) {
     ${context}
     `;
 
-    const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+  const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       {
         type: "function",
         function: {
@@ -117,15 +138,15 @@ export async function POST(req: Request) {
 
     // Initial call to DeepSeek
     // We construct the full message history for the API call
-    let currentMessages = [
+    const currentMessages: ChatMessage[] = [
       { role: "system", content: systemPrompt },
       ...messages
     ];
 
     let response = await deepseek.chat.completions.create({
       model: "deepseek-chat",
-      messages: currentMessages as any,
-      tools: tools,
+      messages: currentMessages,
+      tools,
     });
 
     let message = response.choices[0].message;
@@ -138,35 +159,57 @@ export async function POST(req: Request) {
       const toolCalls = message.tool_calls;
       
       // Append the assistant's message (with tool calls) to the history
-      currentMessages.push(message as any);
+      currentMessages.push(message as ChatMessage);
 
       for (const toolCall of toolCalls) {
-        // @ts-ignore
-        const functionName = toolCall.function.name;
-        // @ts-ignore
-        const args = JSON.parse(toolCall.function.arguments);
-        let result;
+        if (toolCall.type !== 'function' || !toolCall.function) {
+          continue;
+        }
+
+        const { name: functionName, arguments: functionArgs } = toolCall.function;
+        const args = functionArgs
+          ? (JSON.parse(functionArgs) as Record<string, unknown>)
+          : {};
+        let result: unknown;
 
         console.log(`Executing tool: ${functionName} with args:`, args);
 
         try {
           if (functionName === 'getAvailability') {
-            result = await getAvailability(args.date, args.subject);
+            result = await getAvailability(
+              args.date as string,
+              args.subject as string
+            );
           } else if (functionName === 'bookSlot') {
-            result = await bookSlot(args.rowId, args.studentName, args.contactInfo);
+            result = await bookSlot(
+              Number(args.rowId),
+              String(args.studentName),
+              String(args.contactInfo)
+            );
           } else if (functionName === 'addSlot') {
             if (args.adminPassword !== process.env.ADMIN_PASSWORD) {
               throw new Error("Invalid admin password. Cannot add slot.");
             }
-            result = await addSlot(args.date, args.time, args.subject, args.teacher);
+            result = await addSlot(
+              String(args.date),
+              String(args.time),
+              String(args.subject),
+              String(args.teacher)
+            );
           } else if (functionName === 'createBatchSchedule') {
             if (args.adminPassword !== process.env.ADMIN_PASSWORD) {
               throw new Error("Invalid admin password. Cannot create schedule.");
             }
-            result = await createBatchSchedule(args.startDate, args.days, args.subject, args.teacher);
+            result = await createBatchSchedule(
+              String(args.startDate),
+              Number(args.days),
+              String(args.subject),
+              String(args.teacher)
+            );
           }
-        } catch (error: any) {
-          result = { error: error.message };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error';
+          result = { error: message };
         }
 
         // Append tool result to history
@@ -174,22 +217,23 @@ export async function POST(req: Request) {
           role: "tool",
           tool_call_id: toolCall.id,
           content: JSON.stringify(result),
-        } as any);
+        });
       }
 
       // Call DeepSeek again with tool results
       response = await deepseek.chat.completions.create({
         model: "deepseek-chat",
-        messages: currentMessages as any,
-        tools: tools,
+        messages: currentMessages,
+        tools,
       });
 
       message = response.choices[0].message;
     }
 
     return Response.json(message);
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error in chat route:", error);
-    return Response.json({ error: error.message }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return Response.json({ error: message }, { status: 500 });
   }
 }

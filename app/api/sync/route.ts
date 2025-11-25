@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { getKnowledgeBase } from '@/lib/googleSheets';
+import { getKnowledgeBase, KnowledgeBaseEntry } from '@/lib/googleSheets';
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -13,7 +13,7 @@ const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
 export async function GET() {
   try {
     // 1. Get data from Google Sheets
-    const knowledge = await getKnowledgeBase();
+  const knowledge: KnowledgeBaseEntry[] = await getKnowledgeBase();
     
     if (knowledge.length === 0) {
       return Response.json({ message: "No knowledge found in Google Sheets." });
@@ -31,20 +31,20 @@ export async function GET() {
 
     // 3. Generate embeddings and insert
     let count = 0;
-    for (const item of knowledge) {
+  for (const item of knowledge) {
       if (!item.question || !item.answer) continue;
 
-      const content = `Q: ${item.question}\nA: ${item.answer}`;
+  const content = `Q: ${item.question}\nA: ${item.answer}`;
       
       // Generate embedding
-      const result = await model.embedContent(content);
-      const embedding = result.embedding.values;
+  const result = await model.embedContent(content);
+  const embedding = result.embedding?.values ?? [];
 
       // Insert into Supabase
       const { error } = await supabase.from('documents').insert({
-        content: content,
-        embedding: embedding,
-        metadata: { question: item.question }
+        content,
+        embedding,
+        metadata: { question: item.question },
       });
 
       if (error) {
@@ -58,8 +58,9 @@ export async function GET() {
       message: `Successfully synced ${count} items from Google Sheets to Supabase.` 
     });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error("Sync error:", error);
-    return Response.json({ error: error.message }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return Response.json({ error: message }, { status: 500 });
   }
 }

@@ -1,6 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
+type MatchDocument = {
+  content: string;
+};
+
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -13,7 +17,7 @@ export async function retrieveContext(query: string) {
   try {
     // Generate embedding
     const result = await model.embedContent(query);
-    const embedding = result.embedding.values;
+    const embedding = result.embedding?.values ?? [];
 
     // Query Supabase
     const { data, error } = await supabase.rpc('match_documents', {
@@ -33,7 +37,8 @@ export async function retrieveContext(query: string) {
 
     // Format context
     // Assuming the table has a 'content' column
-    return data.map((doc: any) => doc.content).join('\n\n');
+  const documents = data as MatchDocument[];
+  return documents.map((doc) => doc.content ?? '').join('\n\n');
   } catch (error) {
     console.error("Error in retrieveContext:", error);
     return "";

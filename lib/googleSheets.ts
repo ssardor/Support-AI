@@ -1,10 +1,37 @@
-import { GoogleSpreadsheet } from 'google-spreadsheet';
+import {
+  GoogleSpreadsheet,
+  GoogleSpreadsheetWorksheet,
+} from 'google-spreadsheet';
 import { JWT } from 'google-auth-library';
 import * as fs from 'fs';
 import * as path from 'path';
 
 // Initialize auth
-let creds: any;
+interface ServiceAccountCredentials {
+  client_email: string;
+  private_key: string;
+}
+
+interface ScheduleRow {
+  Date?: string;
+  Time?: string;
+  Subject?: string;
+  Teacher?: string;
+  Student_Name?: string;
+  Contact_Info?: string;
+}
+
+interface KnowledgeRow {
+  Question?: string;
+  Answer?: string;
+}
+
+export type KnowledgeBaseEntry = {
+  question: string;
+  answer: string;
+};
+
+let creds: ServiceAccountCredentials;
 
 if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
   creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
@@ -27,7 +54,16 @@ const serviceAccountAuth = new JWT({
 
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID!, serviceAccountAuth);
 
-async function ensureHeaders(sheet: any) {
+async function loadSheet(title: string): Promise<GoogleSpreadsheetWorksheet> {
+  await doc.loadInfo();
+  const sheet = doc.sheetsByTitle[title];
+  if (!sheet) {
+    throw new Error(`Sheet '${title}' not found`);
+  }
+  return sheet;
+}
+
+async function ensureHeaders(sheet: GoogleSpreadsheetWorksheet) {
   await sheet.loadHeaderRow();
   const headers = sheet.headerValues;
   if (!headers.includes('Contact_Info')) {
@@ -37,20 +73,20 @@ async function ensureHeaders(sheet: any) {
 
 function formatContactInfo(contactInfo: string) {
   const trimmed = (contactInfo ?? '').trim();
-  if (!trimmed) return '""';
-  const sanitized = trimmed.replace(/"/g, '');
-  return `"${sanitized}"`;
+  if (!trimmed) return '';
+  const sanitized = trimmed.replace(/[\r\n]+/g, ' ').replace(/["']/g, '').trim();
+
+  // Prefix with an apostrophe if the value might be treated as a formula (+ / = / -)
+  if (/^[=+\-]/.test(sanitized)) {
+    return `'${sanitized}`;
+  }
+
+  return sanitized;
 }
 
 export async function getAvailability(date: string, subject: string) {
-  await doc.loadInfo(); // loads document properties and worksheets
-  const sheet = doc.sheetsByTitle['schedule'];
-  
-  if (!sheet) {
-    throw new Error("Sheet 'schedule' not found");
-  }
-
-  const rows = await sheet.getRows();
+  const sheet = await loadSheet('schedule');
+  const rows = await sheet.getRows<ScheduleRow>();
   
   // Filter rows based on date, subject and empty Student_Name
   // Assuming Date format in sheet matches the input date string or we need to normalize
@@ -76,13 +112,7 @@ export async function getAvailability(date: string, subject: string) {
 }
 
 export async function bookSlot(rowId: number, studentName: string, contactInfo: string) {
-  await doc.loadInfo();
-  const sheet = doc.sheetsByTitle['schedule'];
-  
-  if (!sheet) {
-    throw new Error("Sheet 'schedule' not found");
-  }
-
+  const sheet = await loadSheet('schedule');
   await ensureHeaders(sheet);
 
   // google-spreadsheet rows are usually fetched. To update a specific row by ID (index), 
@@ -92,7 +122,7 @@ export async function bookSlot(rowId: number, studentName: string, contactInfo: 
   
   // Since we have the rowId (rowIndex), we can fetch that specific row or all rows and find it.
   // Fetching all rows again to ensure we have the latest state (concurrency check).
-  const rows = await sheet.getRows();
+  const rows = await sheet.getRows<ScheduleRow>();
   
   // rowId in google-spreadsheet is usually 1-based index of the row in the sheet.
   // The array returned by getRows() does not include the header row.
@@ -118,13 +148,7 @@ export async function bookSlot(rowId: number, studentName: string, contactInfo: 
 }
 
 export async function addSlot(date: string, time: string, subject: string, teacher: string) {
-  await doc.loadInfo();
-  const sheet = doc.sheetsByTitle['schedule'];
-  
-  if (!sheet) {
-    throw new Error("Sheet 'schedule' not found");
-  }
-
+  const sheet = await loadSheet('schedule');
   await ensureHeaders(sheet);
 
   await sheet.addRow({
@@ -140,13 +164,7 @@ export async function addSlot(date: string, time: string, subject: string, teach
 }
 
 export async function createBatchSchedule(startDate: string, days: number, subject: string, teacher: string) {
-  await doc.loadInfo();
-  const sheet = doc.sheetsByTitle['schedule'];
-  
-  if (!sheet) {
-    throw new Error("Sheet 'schedule' not found");
-  }
-
+  const sheet = await loadSheet('schedule');
   await ensureHeaders(sheet);
 
   const start = new Date(startDate);
@@ -183,17 +201,11 @@ export async function createBatchSchedule(startDate: string, days: number, subje
   return { success: true, message: `Added ${rowsToAdd.length} slots starting from ${startDate} (Mon-Fri only, 10am-6pm).` };
 }
 
-export async function getKnowledgeBase() {
-  await doc.loadInfo();
-  const sheet = doc.sheetsByTitle['knowledge'];
-  
-  if (!sheet) {
-    throw new Error("Sheet 'knowledge' not found");
-  }
-
-  const rows = await sheet.getRows();
-  return rows.map(row => ({
-    question: row.get('Question'),
-    answer: row.get('Answer')
+export async function getKnowledgeBase(): Promise<KnowledgeBaseEntry[]> {
+  const sheet = await loadSheet('knowledge');
+  const rows = await sheet.getRows<KnowledgeRow>();
+  return rows.map((row) => ({
+    question: row.get('Question') ?? '',
+    answer: row.get('Answer') ?? '',
   }));
 }
