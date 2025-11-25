@@ -13,7 +13,7 @@ interface ServiceAccountCredentials {
 }
 
 interface ScheduleRow {
-  Date?: string;
+  Date?: string;   
   Time?: string;
   Subject?: string;
   Teacher?: string;
@@ -87,18 +87,25 @@ function formatContactInfo(contactInfo: string) {
 export async function getAvailability(date: string, subject: string) {
   const sheet = await loadSheet('schedule');
   const rows = await sheet.getRows<ScheduleRow>();
+
+  const normalizedDate = date.trim();
+  const normalizedSubject = subject.trim().toLowerCase();
   
   // Filter rows based on date, subject and empty Student_Name
   // Assuming Date format in sheet matches the input date string or we need to normalize
   // For MVP, we assume exact string match or simple inclusion
   
   const availableSlots = rows.filter(row => {
-    const rowDate = row.get('Date');
-    const rowSubject = row.get('Subject');
+    const rowDate = (row.get('Date') ?? '').trim();
+    const rowSubject = (row.get('Subject') ?? '').trim().toLowerCase();
     const studentName = row.get('Student_Name');
     
     // Simple check. In production, use proper date parsing.
-    return rowDate === date && rowSubject === subject && (!studentName || studentName.trim() === '');
+    return (
+      rowDate === normalizedDate &&
+      rowSubject === normalizedSubject &&
+      (!studentName || studentName.trim() === '')
+    );
   });
 
   return availableSlots.map(row => ({
