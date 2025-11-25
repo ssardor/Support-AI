@@ -1,6 +1,7 @@
 import {
   GoogleSpreadsheet,
   GoogleSpreadsheetWorksheet,
+  GoogleSpreadsheetRow,
 } from 'google-spreadsheet';
 import { JWT } from 'google-auth-library';
 import * as fs from 'fs';
@@ -29,6 +30,17 @@ interface KnowledgeRow {
 export type KnowledgeBaseEntry = {
   question: string;
   answer: string;
+};
+
+export type SlotIdentifier = {
+  date: string;
+  time: string;
+  subject: string;
+  teacher: string;
+};
+
+export type AvailabilitySlot = SlotIdentifier & {
+  rowNumber: number;
 };
 
 let creds: ServiceAccountCredentials;
@@ -84,20 +96,37 @@ function formatContactInfo(contactInfo: string) {
   return sanitized;
 }
 
+function normalizeValue(value: string | undefined) {
+  return (value ?? '').trim();
+}
+
+function normalizeSubject(value: string | undefined) {
+  return normalizeValue(value).toLowerCase();
+}
+
+function matchesSlot(row: GoogleSpreadsheetRow<ScheduleRow>, slot: SlotIdentifier) {
+  return (
+    normalizeValue(row.get('Date')) === normalizeValue(slot.date) &&
+    normalizeValue(row.get('Time')) === normalizeValue(slot.time) &&
+    normalizeSubject(row.get('Subject')) === normalizeSubject(slot.subject) &&
+    normalizeValue(row.get('Teacher')) === normalizeValue(slot.teacher)
+  );
+}
+
 export async function getAvailability(date: string, subject: string) {
   const sheet = await loadSheet('schedule');
   const rows = await sheet.getRows<ScheduleRow>();
 
-  const normalizedDate = date.trim();
-  const normalizedSubject = subject.trim().toLowerCase();
+  const normalizedDate = normalizeValue(date);
+  const normalizedSubject = normalizeSubject(subject);
   
   // Filter rows based on date, subject and empty Student_Name
   // Assuming Date format in sheet matches the input date string or we need to normalize
   // For MVP, we assume exact string match or simple inclusion
   
   const availableSlots = rows.filter(row => {
-    const rowDate = (row.get('Date') ?? '').trim();
-    const rowSubject = (row.get('Subject') ?? '').trim().toLowerCase();
+  const rowDate = normalizeValue(row.get('Date'));
+    const rowSubject = normalizeSubject(row.get('Subject'));
     const studentName = row.get('Student_Name');
     
     // Simple check. In production, use proper date parsing.
@@ -109,16 +138,15 @@ export async function getAvailability(date: string, subject: string) {
   });
 
   return availableSlots.map(row => ({
-    rowId: row.rowNumber, // 1-based index usually, but google-spreadsheet might expose it differently. 
-                         // Actually row.rowNumber is the 1-based index in the sheet.
-    time: row.get('Time'),
-    teacher: row.get('Teacher'),
-    date: row.get('Date'),
-    subject: row.get('Subject')
+    rowNumber: row.rowNumber,
+    time: normalizeValue(row.get('Time')),
+    teacher: normalizeValue(row.get('Teacher')),
+    date: normalizeValue(row.get('Date')),
+    subject: normalizeValue(row.get('Subject')),
   }));
 }
 
-export async function bookSlot(rowId: number, studentName: string, contactInfo: string) {
+export async function bookSlot(slot: SlotIdentifier, studentName: string, contactInfo: string) {
   const sheet = await loadSheet('schedule');
   await ensureHeaders(sheet);
 
@@ -136,10 +164,10 @@ export async function bookSlot(rowId: number, studentName: string, contactInfo: 
   // So row 2 in Excel is index 0 in the array? No.
   // Let's assume rowId passed back is the rowIndex property from the row object.
   
-  const rowToUpdate = rows.find(r => r.rowNumber === rowId);
+  const rowToUpdate = rows.find(r => matchesSlot(r, slot));
 
   if (!rowToUpdate) {
-    throw new Error(`Row with ID ${rowId} not found`);
+    throw new Error(`Slot ${slot.date} ${slot.time} (${slot.teacher}) not found`);
   }
 
   const currentStudent = rowToUpdate.get('Student_Name');

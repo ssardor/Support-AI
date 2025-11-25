@@ -1,5 +1,5 @@
 import { OpenAI } from 'openai';
-import { getAvailability, bookSlot, addSlot, createBatchSchedule } from '@/lib/googleSheets';
+import { getAvailability, bookSlot, addSlot, createBatchSchedule, SlotIdentifier } from '@/lib/googleSheets';
 import { retrieveContext } from '@/lib/rag';
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
@@ -90,11 +90,14 @@ export async function POST(req: Request) {
           parameters: {
             type: "object",
             properties: {
-              rowId: { type: "number", description: "The row ID of the slot to book" },
+              date: { type: "string", description: "Date in YYYY-MM-DD format" },
+              time: { type: "string", description: "Time (e.g., 14:00)" },
+              subject: { type: "string", description: "Subject (e.g., Math)" },
+              teacher: { type: "string", description: "Teacher's name" },
               studentName: { type: "string", description: "Name of the student" },
               contactInfo: { type: "string", description: "Student's phone number or email" },
             },
-            required: ["rowId", "studentName", "contactInfo"],
+            required: ["date", "time", "subject", "teacher", "studentName", "contactInfo"],
           },
         },
       },
@@ -181,8 +184,14 @@ export async function POST(req: Request) {
               args.subject as string
             );
           } else if (functionName === 'bookSlot') {
+            const slot: SlotIdentifier = {
+              date: String(args.date),
+              time: String(args.time),
+              subject: String(args.subject),
+              teacher: String(args.teacher),
+            };
             result = await bookSlot(
-              Number(args.rowId),
+              slot,
               String(args.studentName),
               String(args.contactInfo)
             );
